@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>TIID Meter – 3D prototype</title>
+    <style>
+        :root {
+            --bg: #eceff3;
+            --pn: rgba(255, 255, 255, .9);
+            --fg: #10151c;
+            --mu: #566170;
+            --ac: #0d8f84;
+            box-sizing: border-box;
+            padding-top: env(safe-area-inset-top, 0px);
+            padding-bottom: env(safe-area-inset-bottom, 0px)
+        }
+
+        @media(prefers-color-scheme:dark) {
+            :root:not([data-theme="light"]) {
+                --bg: #0d1218;
+                --pn: rgba(22, 29, 38, .9);
+                --fg: #e6eaf0;
+                --mu: #98a4b4;
+                --ac: #34d1c1
+            }
+        }
+
+        :root[data-theme="dark"] {
+            --bg: #0d1218;
+            --pn: rgba(22, 29, 38, .9);
+            --fg: #e6eaf0;
+            --mu: #98a4b4;
+            --ac: #34d1c1
+        }
+
+        html {
+            scroll-padding-top: env(safe-area-inset-top, 0px)
+        }
+
+        html,
+        body {
+            height: 100%;
+            margin: 0
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--fg);
+            font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            overflow: hidden
+        }
+
+        canvas {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+            cursor: grab
+        }
+
+        #p {
+            position: fixed;
+            left: 12px;
+            top: calc(12px + env(safe-area-inset-top, 0px));
+            width: 250px;
+            padding: 14px 16px;
+            background: var(--pn);
+            border-radius: 10px;
+            backdrop-filter: blur(8px)
+        }
+
+        h1 {
+            margin: 0 0 2px;
+            font-size: 17px;
+            font-weight: 650;
+            letter-spacing: -.01em
+        }
+
+        p {
+            margin: 0 0 10px;
+            color: var(--mu)
+        }
+
+        label {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin: 7px 0
+        }
+
+        input[type=range] {
+            width: 130px;
+            accent-color: var(--ac)
+        }
+
+        input[type=checkbox] {
+            accent-color: var(--ac)
+        }
+
+        .row {
+            display: flex;
+            gap: 16px;
+            margin: 8px 0
+        }
+
+        .row label {
+            margin: 0;
+            gap: 6px
+        }
+
+        small {
+            display: block;
+            color: var(--mu);
+            margin-top: 8px;
+            font-size: 12px
+        }
+
+        @media(max-width:600px) {
+            #p {
+                top: auto;
+                bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+                left: 10px;
+                right: 10px;
+                width: auto
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="c"></canvas>
+    <div id="p">
+        <h1>TIID Meter</h1>
+        <p>Handheld 5-in-1 iron and inflammation reader, 140 × 72 × 28 mm.</p>
+        <label>Explode <input id="ex" type="range" min="0" max="1" step=".01" value=".35"></label>
+        <label>Cartridge <input id="ca" type="range" min="0" max="1" step=".01" value="0"></label>
+        <label>Shell opacity <input id="op" type="range" min=".1" max="1" step=".01" value=".55"></label>
+        <div class="row"><label><input id="tp" type="checkbox" checked> Top shell</label><label><input id="bf"
+                    type="checkbox" checked> Baffle</label></div>
+        <small>Chambers, back to front (assumed order): ferritin, transferrin, hepcidin, serum iron, CRP.</small>
+        <small>Drag to orbit, scroll or pinch to zoom. Camera sits about 18 mm above the chamber plane to fit the 28 mm
+            height.</small>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+    <script>
+        const T = THREE, cv = document.getElementById('c'), $ = id => document.getElementById(id);
+        const R = new T.WebGLRenderer({ canvas: cv, antialias: true, alpha: true }); R.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+        const S = new T.Scene(), cam = new T.PerspectiveCamera(32, 1, 1, 2000);
+        S.add(new T.HemisphereLight(0xffffff, 0x6b7685, .95));
+        [[90, 160, 110, .85], [-110, 60, -90, .35]].forEach(([x, y, z, i]) => { const l = new T.DirectionalLight(0xffffff, i); l.position.set(x, y, z); S.add(l) });
+        const mat = (c, o = 1, r = .5, m = 0) => { const q = new T.MeshStandardMaterial({ color: c, roughness: r, metalness: m }); if (o < 1) { q.transparent = true; q.opacity = o; q.depthWrite = false } return q };
+        const box = (g, w, h, d, x, y, z, m) => { const b = new T.Mesh(new T.BoxGeometry(w, h, d), m); b.position.set(x, y, z); g.add(b) };
+        const cyl = (g, r, h, x, y, z, m) => { const c = new T.Mesh(new T.CylinderGeometry(r, r, h, 28), m); c.position.set(x, y, z); g.add(c) };
+        const gB = new T.Group(), gT = new T.Group(), gF = new T.Group(), gC = new T.Group(); S.add(gB, gT, gF, gC);
+
+        // rounded-rectangle outline (plan view), CCW, corners BR,TR,TL,BL
+        const N = 8, K = N + 1, V = T.Vector2, LL = 140, WW = 72, RR = 6, TT = 2.4;
+        const rr = (L, W, r) => { const p = [];[[1, -1, -90], [1, 1, 0], [-1, 1, 90], [-1, -1, 180]].forEach(([sx, sy, a0]) => { for (let i = 0; i <= N; i++) { const a = (a0 + 90 * i / N) * Math.PI / 180; p.push(new V(sx * (L / 2 - r) + r * Math.cos(a), sy * (W / 2 - r) + r * Math.sin(a))) } }); return p };
+        const rot = (a, k) => a.slice(k).concat(a.slice(0, k));
+        function ext(sh, y0, h, m, g) { const geo = new T.ExtrudeGeometry(sh, { depth: h, bevelEnabled: false }); geo.rotateX(-Math.PI / 2); const me = new T.Mesh(geo, m); me.position.y = y0; g.add(me) }
+        function ring(y0, h, m, g, slot) {
+            const O = rr(LL, WW, RR), I = rr(LL - 2 * TT, WW - 2 * TT, RR - TT); let sh;
+            if (slot) { const a = 18.5; sh = new T.Shape([new V(LL / 2, a), ...rot(O, K), new V(LL / 2, -a), new V(LL / 2 - TT, -a), ...rot(I.slice().reverse(), 3 * K), new V(LL / 2 - TT, a)]) }
+            else { sh = new T.Shape(O); sh.holes.push(new T.Path(I)) }
+            ext(sh, y0, h, m, g)
+        }
+        function plate(y0, h, m, g, holes) { const sh = new T.Shape(rr(LL, WW, RR)); (holes || []).forEach(([x, z, r]) => { const p = new T.Path(); p.absarc(x, -z, r, 0, Math.PI * 2, true); sh.holes.push(p) }); ext(sh, y0, h, m, g) }
+
+        // shells (bottom 0-14, top 14-28); slot ring sits at the cartridge plane on the +X end
+        const shell = mat(0x3d4652, .55, .45, .05);
+        plate(0, 2, shell, gB); ring(2, 2.6, shell, gB); ring(4.6, 2.8, shell, gB, true); ring(7.4, 6.6, shell, gB);
+        ring(14, 12, shell, gT); plate(26, 2, shell, gT, [[-30, 0, 5.6], [-30, -12, 1.6]]);
+        cyl(gT, 5, 3, -30, 27.1, 0, mat(0x0d8f84, 1, .4));
+        cyl(gT, 1.2, 2.5, -30, 27, -12, new T.MeshStandardMaterial({ color: 0x22c55e, emissive: 0x22c55e, emissiveIntensity: .9 }));
+        box(gB, .3, 3.4, 9.2, -70.1, 12.3, 0, mat(0x0b0d10, 1, .6));            // USB-C opening (marker)
+
+        // electronics
+        const pcb = mat(0x0b6b3a, 1, .6), brass = mat(0xb08d3c, 1, .4, .6);
+        box(gB, 50, 6, 30, -42, 5, 0, mat(0x2f6fdb, 1, .5));                     // LiPo 50x30x6
+        box(gB, 58, 1.6, 40, -38, 10, 0, pcb); box(gB, 18, 3, 25.5, -50, 12.3, 0, mat(0xc8ccd2, 1, .3, .8)); box(gB, 4, 3, 8.2, -65.6, 12.3, 0, mat(0xc8ccd2, 1, .3, .8));
+        [-64, -12].forEach(x => [-18, 18].forEach(z => cyl(gB, 1.5, 7.2, x, 5.6, z, brass)));
+        box(gB, 12, 1.6, 27, 20.5, 3.2, 0, pcb);
+        const led = new T.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff0c0, emissiveIntensity: 1.2 });
+        [-12, -6, 0, 6, 12].forEach(z => box(gB, 2.4, .8, 2.4, 20.5, 4.4, z, led));
+        [-16, 16].forEach(z => box(gB, 68.6, 3, 3, 33.3, 3.5, z, mat(0x8a929c, 1, .6)));   // guide rails
+        box(gT, 24, 1.6, 24, 20.5, 25.2, 0, mat(0x14305a, 1, .5)); cyl(gT, 4, 2.4, 20.5, 23.2, 0, mat(0x050608, 1, .3)); cyl(gT, 3, .1, 20.5, 21.95, 0, mat(0x3355ff, 1, .1, .5));
+        [-12.6, 12.6].forEach(s => { box(gT, 26.4, 3.2, 1.2, 20.5, 24.4, s, mat(0x20262e)); box(gT, 1.2, 3.2, 26, 20.5 + s, 24.4, 0, mat(0x20262e)) });
+
+        // optical baffle (matte black)
+        const blk = mat(0x0a0a0a, 1, .95);
+        [-18.6, 18.6].forEach(z => box(gF, 32, 24, 1.2, 20.5, 14, z, blk));
+        [-15.4, 15.4].forEach(dx => { box(gF, 1.2, 2.8, 36, 20.5 + dx, 3.4, 0, blk); box(gF, 1.2, 18.8, 36, 20.5 + dx, 16.6, 0, blk) });
+
+        // PMMA cartridge, 75 x 2 x 35, origin at its centre
+        box(gC, 75, 2, 35, 0, 0, 0, mat(0x9bd3ff, .35, .1));
+        gC.add(new T.LineSegments(new T.EdgesGeometry(new T.BoxGeometry(75, 2, 35)), new T.LineBasicMaterial({ color: 0x4da3e8 })));
+        cyl(gC, 1.5, .1, 33, 1.05, 0, mat(0x1b2733));
+        const pts = [new T.Vector3(33, 1.03, 0), new T.Vector3(-14, 1.03, 0)], ch = mat(0xc2184a, .9, .3), vl = mat(0xf59e0b);
+        [-12, -6, 0, 6, 12].forEach(z => { pts.push(new T.Vector3(-14, 1.03, 0), new T.Vector3(-22, 1.03, z)); cyl(gC, 2, 2.04, -22, 0, z, ch); cyl(gC, .6, .2, -19.6, 1.05, z * .7, vl) });
+        gC.add(new T.LineSegments(new T.BufferGeometry().setFromPoints(pts), new T.LineBasicMaterial({ color: 0x1d4ed8 })));
+
+        // controls
+        function apply() {
+            const e = +$('ex').value, k = +$('ca').value;
+            gT.position.y = e * 55; gF.position.y = e * 26; gC.position.set(42.5 + k * 75, 6 + e * 14, 0);
+            shell.opacity = +$('op').value; gT.visible = $('tp').checked; gF.visible = $('bf').checked; tg.y = 14 + e * 26; draw()
+        }
+        let th = .7, ph = 1.0, rad = innerWidth < 600 ? 330 : 240; const tg = new T.Vector3(10, 14, 0);
+        function draw() { cam.position.set(tg.x + rad * Math.sin(ph) * Math.sin(th), tg.y + rad * Math.cos(ph), tg.z + rad * Math.sin(ph) * Math.cos(th)); cam.lookAt(tg); R.render(S, cam) }
+        function rs() { const w = innerWidth, h = innerHeight; R.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); draw() }
+        const ptr = new Map(), dist = () => { const [a, b] = [...ptr.values()]; return Math.hypot(a[0] - b[0], a[1] - b[1]) }, cl = (v, a, b) => Math.min(b, Math.max(a, v));
+        cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); ptr.set(e.pointerId, [e.clientX, e.clientY]) });
+        cv.addEventListener('pointermove', e => {
+            if (!ptr.has(e.pointerId)) return; const o = ptr.get(e.pointerId), d0 = ptr.size == 2 ? dist() : 0; ptr.set(e.pointerId, [e.clientX, e.clientY]);
+            if (ptr.size == 1) { th -= (e.clientX - o[0]) * .008; ph = cl(ph - (e.clientY - o[1]) * .008, .1, 3.0) } else if (ptr.size == 2) rad = cl(rad * d0 / dist(), 80, 600); draw()
+        });
+        ['pointerup', 'pointercancel'].forEach(t => cv.addEventListener(t, e => ptr.delete(e.pointerId)));
+        cv.addEventListener('wheel', e => { e.preventDefault(); rad = cl(rad * Math.exp(e.deltaY * .001), 80, 600); draw() }, { passive: false });
+        ['ex', 'ca', 'op', 'tp', 'bf'].forEach(i => $(i).addEventListener('input', apply));
+        addEventListener('resize', rs); apply(); rs();
+    </script>
+</body>
+
+</html>
